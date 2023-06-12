@@ -1,0 +1,122 @@
+# load packages
+library(tidyverse)
+library(data.table)
+library(dplyr)
+
+# import tsv files
+indels32 <- read.csv("32.indels.tsv", sep="\t", header=FALSE)
+indels33 <- read.csv("33.indels.tsv", sep="\t", header=FALSE)
+indels34 <- read.csv("34.indels.tsv", sep="\t", header=FALSE)
+indels35 <- read.csv("35.indels.tsv", sep="\t", header=FALSE)
+indels36 <- read.csv("36.indels.tsv", sep="\t", header=FALSE)
+indels37 <- read.csv("37.indels.tsv", sep="\t", header=FALSE)
+indels38 <- read.csv("38.indels.tsv", sep="\t", header=FALSE)
+indels39 <- read.csv("39.indels.tsv", sep="\t", header=FALSE)
+
+# add sample column
+indels32[,7] <- "T0"
+indels33[,7] <- "T0.1_OMP-"
+indels34[,7] <- "T0.1_OMP+"
+indels39[,7] <- "Sub15"
+
+# join tables
+indels <- rbind(indels32, indels33, indels34, indels39)
+
+# rename columns
+names(indels)[1] <- "chr"
+names(indels)[2] <- "pos"
+names(indels)[3] <- "ref"
+names(indels)[4] <- "alt"
+names(indels)[5] <- "qual"
+names(indels)[6] <- "filter"
+names(indels)[7] <- "sample"
+
+# reorder columns
+indels <- indels[,c(7,1,2,3,4,5,6)]
+
+# import tsv files
+snvs32 <- read.csv("32.snvs.tsv", sep="\t", header=FALSE)
+snvs33 <- read.csv("33.snvs.tsv", sep="\t", header=FALSE)
+snvs34 <- read.csv("34.snvs.tsv", sep="\t", header=FALSE)
+snvs35 <- read.csv("35.snvs.tsv", sep="\t", header=FALSE)
+snvs36 <- read.csv("36.snvs.tsv", sep="\t", header=FALSE)
+snvs37 <- read.csv("37.snvs.tsv", sep="\t", header=FALSE)
+snvs38 <- read.csv("38.snvs.tsv", sep="\t", header=FALSE)
+snvs39 <- read.csv("39.snvs.tsv", sep="\t", header=FALSE)
+
+# add sample column
+snvs32[,7] <- "T0"
+snvs33[,7] <- "T0.1_OMP-"
+snvs34[,7] <- "T0.1_OMP+"
+snvs35[,7] <- "Sub8"
+snvs36[,7] <- "Sub10"
+snvs37[,7] <- "Sub20"
+snvs38[,7] <- "Sub21"
+snvs39[,7] <- "Sub15"
+
+# join snvs tables
+snvs <- rbind(snvs32, snvs33, snvs34, snvs35, snvs36, snvs37, snvs38, snvs39)
+
+# rename columns
+names(snvs)[1] <- "chr"
+names(snvs)[2] <- "pos"
+names(snvs)[3] <- "ref"
+names(snvs)[4] <- "alt"
+names(snvs)[5] <- "qual"
+names(snvs)[6] <- "filter"
+names(snvs)[7] <- "sample"
+
+# reorder columns
+snvs <- snvs[,c(7,1,2,3,4,5,6)]
+
+# import annotation table
+annot <- read.csv("proteins_180_218944.csv")
+
+# order tables by variant/gene chromosome then position
+indels <- indels[with(indels, order(pos)),]
+
+# join indels and snvs with annot
+annot$Start <- as.numeric(annot$Start)
+annot$Stop <- as.numeric(annot$Stop)
+annot <- data.table(annot)
+
+indels <- data.table(indels)
+variants_indels <- annot[indels, on = .(Start <= pos, Stop >= pos),
+                  .(sample, chr, pos, ref, alt, Locus, Locus.tag, Protein.product, Protein.Name)]
+
+snvs <- data.table(snvs)
+variants_snvs <- annot[snvs, on = .(Start <= pos, Stop >= pos),
+                  .(sample, chr, pos, ref, alt, Locus, Locus.tag, Protein.product, Protein.Name)]
+
+fwrite(variants_indels, "indels.csv")
+fwrite(variants_snvs, "snvs.csv")
+
+# delete variants found in T0
+variants_snvs <- variants_snvs[variants_snvs$sample != "T0", ]
+variants_indels <- variants_indels[variants_indels$sample != "T0", ]
+
+# extract variants found only in 1 sample
+uniqvars_snvs <- variants_snvs %>% 
+  group_by(pos, ref, alt) %>% 
+  filter(n() == 1)
+uniqvars_indels <- variants_indels %>% 
+  group_by(pos, ref, alt) %>% 
+  filter(n() == 1)
+uniqvars_snvs$var.type <- "snv"
+uniqvars_indels$var.type <- "indel"
+uniqvars <- rbind(uniqvars_indels, uniqvars_snvs)
+
+# extract repeat variants
+repeatvars_snvs <- variants_snvs %>% 
+  group_by(pos, ref, alt) %>% 
+  filter(n() > 1)
+repeatvars_indels <- variants_indels %>% 
+  group_by(pos, ref, alt) %>% 
+  filter(n() > 1)
+repeatvars_snvs$var.type <- "snv"
+repeatvars_indels$var.type <- "indel"
+repeatvars <- rbind(repeatvars_indels, repeatvars_snvs)
+
+# write out tables
+fwrite(uniqvars, "uniqvars.csv")
+fwrite(repeatvars, "repvars.csv")
